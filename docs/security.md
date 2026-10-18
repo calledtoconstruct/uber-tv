@@ -111,10 +111,21 @@ touches.
   after `--`, so nothing in a channel list can become a yt-dlp option.
 - **Fetches** from YouTube: listings, each channel's live streams, the videos
   themselves and, with logos on, channel avatars from YouTube's image servers
-  (`yt3.googleusercontent.com`, `yt3.ggpht.com`; under 512 KB). For IPTV, it
+  (`yt3.googleusercontent.com`, `yt3.ggpht.com`; https only, under 512 KB, and
+  only when every address is a public one). A redirect is checked the same
+  way, so an avatar link can't leave those servers. A YouTube media playlist
+  is fetched the same way (https, public addresses, 2 MB at most). For IPTV, it
   fetches the playlists you add (with `curl`: http or https, 20 MB and 30 s at
   most), plays their streams (http or https), and, with logos on, their logos
-  (images only, under 512 KB, redirects only to http or https). Links to anywhere else are dropped, whether pasted,
+  (images only, under 512 KB). A logo or a program-listings link is resolved
+  first and again after every redirect. A public address is fetched, and so is
+  one on your own network, where a home media server lives. This computer, a
+  link-local address (including a cloud machine's metadata address) and every
+  other special range is not. A login on a link is sent only back to that same
+  scheme, host and port. A redirect that brings its own login is sent that
+  login, never the original. Listings stop at 400 MB compressed and 512 MB once
+  unpacked, and an xz file can't reserve more than that to decode. Links to
+  anywhere else are dropped, whether pasted,
   imported, or hand-edited into the saved list.
 - **Listens** on `127.0.0.1` (the streamer, on a random port). Every request
   must carry a secret made at startup, so web pages and other programs can't

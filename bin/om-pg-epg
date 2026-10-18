@@ -6,10 +6,14 @@
 The request: {"sources": [link or full path, ...], "channels": [{"url",
 "tvgId", "name"}, ...], "from": seconds, "to": seconds, "out": path}.
 Each source is downloaded (or read), unpacked (.gz, .xz) and read as it
-comes, so a big file never sits in memory. Its channels are matched to
-yours: by tvg-id first, then by name within the same country, preferring
-the East (not Pacific or West) feed. The shows of matched channels between
-"from" and "to" are written to "out" as JSON, readable by you alone:
+comes, so a big file never sits in memory. A link is fetched by
+lib/mediafetch.py: every address it resolves to is checked first, and
+again after a redirect, and the unpacked listings stop at 512 MB. An xz
+file can't reserve more than that to decode. Its
+channels are matched to yours: by tvg-id first, then by name within the
+same country, preferring the East (not Pacific or West) feed. The shows
+of matched channels between "from" and "to" are written to "out" as JSON,
+readable by you alone:
 {"fetched", "from", "to", "sources": [{"url", "ok", "error", "channels",
 "matched", "shows"}], "shows": {channel url: [[start, end, title, description,
 category], ...]}}.
@@ -20,6 +24,7 @@ Prints a JSON line as each source goes ({"source", "status"}), then
 
 import datetime
 import gzip
+import importlib.util
 import json
 import lzma
 import os
@@ -27,10 +32,24 @@ import re
 import sys
 import tempfile
 import time
-import urllib.request
 import xml.etree.ElementTree as ET
+from importlib.machinery import SourceFileLoader
 
 MAX_DOWNLOAD = 400 * 1024 * 1024
+MAX_UNPACKED = 512 * 1024 * 1024
+
+
+def load(name, rel):
+    """One of the guide's own modules, by its path (never from sys.path)"""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), rel)
+    loader = SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_file_location(name, path, loader=loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+media = load("mediafetch", "lib/mediafetch.py")
 MAX_SHOWS = 400                     # per channel
 FEED_WORDS = {"pacific", "west", "mountain", "central"}
 GENERIC_FEEDS = {"", "sd", "hd", "fhd", "uhd", "4k", "east", "sd1", "hd1"}
@@ -77,39 +96,142 @@ def xmltv_time(text):
 
 
 def fetch(source, folder):
-    """A local path as it is; a link downloaded to a file in folder"""
+    """A local path as it is; a link downloaded to a file in folder.
+
+    A link is checked, then fetched, by lib/mediafetch.py. This computer's
+    own addresses and link-local addresses are not reached. The download
+    stops at 400 MB.
+    """
     if not re.match(r"https?://", source):
         path = os.path.expanduser(source)
         if not os.path.isfile(path):
             raise OSError("no such file")
         return path, False
-    req = urllib.request.Request(source, headers={"User-Agent": "om-pg (Omarchy program guide)"})
     fd, path = tempfile.mkstemp(prefix="epg-", suffix=".download", dir=folder)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp, os.fdopen(fd, "wb") as out:
-            got = 0
-            while True:
-                chunk = resp.read(1 << 20)
-                if not chunk:
-                    break
-                got += len(chunk)
-                if got > MAX_DOWNLOAD:
-                    raise OSError("bigger than 400 MB")
-                out.write(chunk)
+        with os.fdopen(fd, "wb") as out:
+            media.retrieve(source, out.write, MAX_DOWNLOAD, 60)
     except BaseException:
-        os.unlink(path)
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
         raise
     return path, True
+
+
+class Capped:
+    """A reader that stops once limit bytes have come out of it.
+
+    Program listings are often gzipped. The download is already capped; this
+    caps what that gzip expands to, so a small download can't expand without
+    a limit. Exactly limit bytes is fine. One more raises.
+    """
+
+    def __init__(self, raw, limit):
+        self.raw = raw
+        self.limit = limit
+        self.got = 0
+
+    def read(self, n=-1):
+        if self.got > self.limit:
+            raise OSError("bigger than %d MB unpacked" % (self.limit // (1024 * 1024)))
+        if n is None or n < 0:
+            n = 1024 * 1024
+        chunk = self.raw.read(min(n, 1024 * 1024))
+        if not chunk:
+            return b""
+        self.got += len(chunk)
+        if self.got > self.limit:
+            raise OSError("bigger than %d MB unpacked" % (self.limit // (1024 * 1024)))
+        return chunk
+
+    def close(self):
+        self.raw.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+
+class XzLimited:
+    """An xz reader whose dictionary cannot exceed memlimit bytes.
+
+    lzma.open has no memory limit. liblzma reads the dictionary size from
+    the stream header and reserves it before any output byte exists, so
+    counting output (Capped) is too late: a tiny file can ask for 1536 MB.
+    The decompressor is given the same cap as the unpacked output, and a
+    stream that cannot be decoded inside it fails instead.
+    """
+
+    def __init__(self, path, memlimit):
+        self._fp = open(path, "rb")
+        self._memlimit = memlimit
+        self._dec = lzma.LZMADecompressor(memlimit=memlimit)
+        self._eof = False
+
+    def read(self, n=-1):
+        if self._eof:
+            return b""
+        if n is None or n < 0:
+            n = 1024 * 1024
+        out = bytearray()
+        while len(out) < n:
+            if self._dec.eof:
+                raw = self._dec.unused_data
+                if not raw:
+                    raw = self._fp.read(64 * 1024)
+                    if not raw:
+                        self._eof = True
+                        break
+                self._dec = lzma.LZMADecompressor(memlimit=self._memlimit)
+                try:
+                    piece = self._dec.decompress(raw, n - len(out))
+                except lzma.LZMAError as e:
+                    # Trailing bytes that are not another stream are ignored,
+                    # as lzma.open ignores them. A dictionary over the cap is not.
+                    if "memory usage limit" in str(e).lower():
+                        raise
+                    self._eof = True
+                    break
+            else:
+                if self._dec.needs_input:
+                    raw = self._fp.read(64 * 1024)
+                    if not raw:
+                        raise EOFError("compressed file ended before the end-of-stream marker was reached")
+                else:
+                    raw = b""
+                piece = self._dec.decompress(raw, n - len(out))
+            if piece:
+                out += piece
+            elif self._dec.needs_input or self._dec.eof:
+                continue
+            else:
+                break
+        return bytes(out)
+
+    def close(self):
+        self._fp.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 def opened(path):
     with open(path, "rb") as f:
         magic = f.read(6)
     if magic[:2] == b"\x1f\x8b":
-        return gzip.open(path, "rb")
-    if magic == b"\xfd7zXZ\x00":
-        return lzma.open(path, "rb")
-    return open(path, "rb")
+        raw = gzip.open(path, "rb")
+    elif magic == b"\xfd7zXZ\x00":
+        raw = XzLimited(path, MAX_UNPACKED)
+    else:
+        raw = open(path, "rb")
+    return Capped(raw, MAX_UNPACKED)
 
 
 def feed_words(*texts):

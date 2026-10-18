@@ -10,6 +10,13 @@ versions are fixes. 1.0.0 will be the public release, once the plugin's name
 and id are final (the rename to Uber TV) and the app interface is declared
 stable.
 
+## [Unreleased]
+
+### Fixed
+
+- **A program-listings link or a channel logo is fetched only after every address it names is checked**, including after a redirect. A public address is fetched, and so is one on your own network (a home media server). This computer, a link-local address and other special addresses are not, so a playlist can't be aimed at them. YouTube's logos stay on YouTube's image servers, over https. A login on a link is sent only back to that same scheme, host and port. A redirect that brings its own login is sent that login, never the original. If one address doesn't answer, another that was allowed is tried, and that first wait doesn't use up the whole fetch.
+- **Program listings stop at 512 MB once unpacked.** A small compressed file can't expand without a limit, and an xz file can't reserve more than 512 MB to decode. The download itself still stops at 400 MB.
+
 ## [0.2.0-beta] - 2026-10-18
 
 The first public release.

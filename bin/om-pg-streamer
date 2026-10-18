@@ -12,11 +12,18 @@ local playlist file out to https.
 GET /logo/<channel id>.jpg?src=<avatar url> returns the channel's logo from
 a disk cache, downloading it first if it isn't there or is a month old.
 Downloads are throttled (two at a time, spaced out), only from YouTube's
-image servers, and a failed one isn't tried again for six hours.
+image servers over https, and only when every address is a public one. A
+redirect is checked the same way, so it can't leave those servers. A failed
+download isn't tried again for six hours.
 
 GET /picon?src=<logo url> does the same for an IPTV channel's logo, from
-wherever its playlist says (http or https only, images only, 512 KB at most,
-redirects only to http or https).
+wherever its playlist says (http or https, images only, 512 KB at most).
+The address is checked first and again after every redirect: a public
+address or one on the user's own network is fetched, and this computer,
+a link-local address and every other special range is not.
+
+A YouTube media playlist is fetched the same way, https only, public
+addresses only, and it stops at 2 MB.
 
 Listens on 127.0.0.1 only, on a free port. Every path starts with a secret
 made at startup, so web pages and other programs can't use it; the first
@@ -35,6 +42,7 @@ isn't.
 import hashlib
 import hmac
 import http.server
+import importlib.util
 import json
 import os
 import pathlib
@@ -44,7 +52,7 @@ import sys
 import threading
 import time
 import urllib.parse
-import urllib.request
+from importlib.machinery import SourceFileLoader
 
 import yt_dlp
 
@@ -65,6 +73,21 @@ LOGO_HOSTS = {"yt3.googleusercontent.com", "yt3.ggpht.com"}
 LOGO_MAX_AGE = 30 * 86400
 FRESH_MAX_AGE = 900  # a live stream's picture (fresh): it changes with what's on
 LOGO_MAX_BYTES = 512 * 1024
+PLAYLIST_MAX_BYTES = 2 * 1024 * 1024
+
+
+def load(name, rel):
+    """One of the guide's own modules, by its path (never from sys.path)"""
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), rel)
+    loader = SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_file_location(name, path, loader=loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+media = load("mediafetch", "lib/mediafetch.py")
+
 logo_slots = threading.BoundedSemaphore(2)
 logo_pace = threading.Lock()
 last_logo = [0.0]
@@ -119,23 +142,12 @@ def playlist(video_id):
                      if f.get("protocol", "").startswith("m3u8") and f.get("manifest_url")), None)
     if not manifest:
         raise LookupError("no HLS stream for " + video_id)
-    with urllib.request.urlopen(manifest, timeout=20) as response:
-        text = trim(response.read().decode())
+    body = bytearray()
+    media.retrieve(manifest, body.extend, PLAYLIST_MAX_BYTES, 20, public_only=True, https_only=True, user_agent="Mozilla/5.0")
+    text = trim(body.decode())
     with lock:
         cache[video_id] = (time.time() + KEEP_FOR, text)
     return text
-
-
-class WebOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """Follows redirects to http and https only (not ftp or anything else)."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urllib.parse.urlsplit(newurl).scheme not in ("http", "https"):
-            raise LookupError("redirect away from the web")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-fetcher = urllib.request.build_opener(WebOnlyRedirects)
 
 
 def logo(channel_id, src, any_host=False, max_age=LOGO_MAX_AGE):
@@ -162,13 +174,14 @@ def logo(channel_id, src, any_host=False, max_age=LOGO_MAX_AGE):
                 if wait > 0:
                     time.sleep(wait)
                 last_logo[0] = time.time()
-            request = urllib.request.Request(src, headers={"User-Agent": "Mozilla/5.0"})
-            with fetcher.open(request, timeout=15) as response:
-                if not response.headers.get("Content-Type", "").startswith("image/"):
-                    raise LookupError("not an image")
-                data = response.read(LOGO_MAX_BYTES + 1)
-        if len(data) > LOGO_MAX_BYTES:
-            raise LookupError("too big")
+            data = bytearray()
+            kind = media.retrieve(src, data.extend, LOGO_MAX_BYTES, 15,
+                                  hosts=None if any_host else LOGO_HOSTS,
+                                  public_only=not any_host, https_only=not any_host,
+                                  user_agent="Mozilla/5.0")
+            if not str(kind).startswith("image/"):
+                raise LookupError("not an image")
+        data = bytes(data)
     except Exception:
         logo_failed[channel_id] = time.time() + 6 * 3600
         if path.exists():
@@ -176,8 +189,15 @@ def logo(channel_id, src, any_host=False, max_age=LOGO_MAX_AGE):
         raise
     LOGOS.mkdir(parents=True, exist_ok=True)
     partial = path.with_suffix(".part")
-    partial.write_bytes(data)
-    os.replace(partial, path)
+    try:
+        partial.write_bytes(data)
+        os.replace(partial, path)
+    except BaseException:
+        try:
+            partial.unlink()
+        except OSError:
+            pass
+        raise
     return data
 
 
@@ -421,7 +441,12 @@ def listen(mpris):
             mpris.update(message["mpris"])
 
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-say(f"{server.server_address[1]} {SECRET}")
-threading.Thread(target=listen, args=(Mpris() if Gio else None,), daemon=True).start()
-server.serve_forever()
+def main():
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    say(f"{server.server_address[1]} {SECRET}")
+    threading.Thread(target=listen, args=(Mpris() if Gio else None,), daemon=True).start()
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

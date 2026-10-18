@@ -600,7 +600,9 @@ row shows its shows; without, it's one **● LIVE** block. A stream that drops i
 SIGNAL. In the filter box (**F**), **SOURCES** shows YouTube + IPTV, YouTube
 only, or IPTV only.
 
-Streams play from wherever the playlist points (http and https only). Because
+Streams play from wherever the playlist points (http and https only). A
+channel's logo, when logos are on, is fetched from a public address or from
+your own network, not from this computer. Because
 IPTV links can carry logins, your channel list
 (`~/.config/om-pg/channels.json`) is kept readable by you alone.
 
@@ -613,6 +615,9 @@ file (`.xml`, `.xml.gz` or `.xml.xz`) or a full path to one. Your provider
 may give you one; free ones, by country, are at
 [epgshare01.online](https://epgshare01.online/epgshare01/). A playlist that
 names its own listings (`url-tvg` at its top) brings them when you add it.
+A listings link is fetched from a public address or your own network, not
+from this computer. A compressed file stops at 512 MB once unpacked, and an
+xz file can't reserve more than that to decode.
 
 Listings are matched to your channels by their `tvg-id`, then by name within
 the same country. A channel of one feed (a Pacific or West one, or a single

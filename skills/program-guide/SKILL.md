@@ -57,7 +57,7 @@ or the Uber TV plugin isn't installed or is turned off.
 | `omarchy-shell om-pg rail` | the nav rail: when it shows (`always`, `focus`, `none`) and its items in order, each on or off, and whether each one's part is turned on |
 | `omarchy-shell om-pg setRail "<items>" <always\|focus\|none>` | the rail's items in order, with commas (`search`, `home`, `tv`, `movies`, `ondemand`, `videos`, `mylist`, `apps`, `settings`): the ones named are on, the rest off (`settings` always stays). `""` keeps either |
 | `omarchy-shell om-pg listings` | program listings (XMLTV) for IPTV channels: the sources, how many channels each matched, errors, when fetched, and how many IPTV channels have listings |
-| `omarchy-shell om-pg addListings "<link or path>"` | adds a source of program listings: a link to an XMLTV file (`.xml`, `.xml.gz`, `.xml.xz`) or a full path to one. Fetched at once; run `listings` a minute later |
+| `omarchy-shell om-pg addListings "<link or path>"` | adds a source of program listings: a link to an XMLTV file (`.xml`, `.xml.gz`, `.xml.xz`) or a full path to one. A link is fetched from a public address or the user's own network, not from this computer. Fetched at once; run `listings` a minute later |
 | `omarchy-shell om-pg removeListings "<link or path>"` | takes a source of listings off. Only when the user asks |
 | `omarchy-shell om-pg search "<words>"` | what matches, as the guide's Search shows it: `channels` (with `watch` numbers), `onNow`, `laterToday`, `movies` (series with their episodes' ids), `videos`, `myVideos` (with `play` ids). Channels and shows follow what the guide shows |
 | `omarchy-shell om-pg library "<words>"` | movies and series in the library matching the words (`""`: the first 100), with their ids, genres, and where the user stopped |
@@ -450,7 +450,9 @@ listings for them. A provider often gives a listings link (XMLTV); free ones
 by country are listed at `https://epgshare01.online/epgshare01/` (files like
 `epg_ripper_US2.xml.gz`; the `.txt` beside each lists its channels).
 `addListings` adds one, and `listings` then says how many channels it matched.
-Matching is by `tvg-id`, then name within a country; a feed-specific channel
+A link is fetched from a public address or the user's own network, not from
+this computer. A compressed file stops at 512 MB once unpacked, and an xz file
+can't reserve more than that to decode. Matching is by `tvg-id`, then name within a country; a feed-specific channel
 (Pacific, one station of a network) only takes its own feed's listings. Add
 sources only when the user asks; big ones (tens of MB) are fetched twice a day.
 

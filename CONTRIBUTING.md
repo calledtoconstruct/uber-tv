@@ -105,6 +105,7 @@ python3 tests/snapshots.test.py   # snapshot files put in place whole, and the g
 python3 tests/saver.test.py   # the screen saver's pictures: links, fakes, sizes, depth, the cap, Omarchy's folders, your folder made only at home
 python3 tests/lock.test.py    # the channel lock's passcode: only a hash, changing it, wrong tries slowing down, a sound file
 python3 tests/remote.test.py  # the phone remote's commands: the passcode as text, 4 to 8 digits, only from a paired phone
+python3 tests/mediafetch.test.py   # logos and program listings: the address is checked before anything is fetched, and unpacked listings, an xz dictionary included, stop at 512 MB
 python3 tests/jellyfin.test.py tests/appmedia.test.py tests/appplayback.test.py   # Jellyfin, media checks, playback
 python3 tests/marketplace.test.py   # the marketplace's limits: sizes, no new capability or dependency
 QT_QPA_PLATFORM=offscreen /usr/lib/qt6/bin/qmltestrunner -input tests/qml   # the guide's side
