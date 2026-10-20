@@ -4548,7 +4548,7 @@ Item {
     theme.name = typeof given.name === "string" && given.name.trim() ? given.name.trim().slice(0, 40) : id
     theme.description = typeof given.description === "string" ? given.description.trim().slice(0, 200) : ""
     for (var key in given) {
-      if (["id", "name", "description", "colors", "images", "elements", "fonts", "layout", "background", "home", "lowerThird", "card", "apps"].indexOf(key) < 0) ignored.push(key)
+      if (["id", "name", "description", "colors", "images", "elements", "fonts", "layout", "background", "home", "multiview", "lowerThird", "card", "apps"].indexOf(key) < 0) ignored.push(key)
     }
     var colors = given.colors && typeof given.colors === "object" ? given.colors : {}
     for (var c in colors) {

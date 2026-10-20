@@ -10,6 +10,12 @@ versions (0.2.1…) bring fixes and small additions. 1.0.0 will be the public re
 and id are final (the rename to Uber TV) and the app interface is declared
 stable.
 
+## [Unreleased]
+
+### Fixed
+
+- **A theme's Multiview background stays when the theme is saved.** `addTheme` was storing it and also listing `multiview` as ignored, so a follow-up that dropped ignored keys removed the background. A bad color, picture, or dim is still reported on its own.
+
 ## [0.3.0-beta] - 2026-10-19
 
 ### Added
